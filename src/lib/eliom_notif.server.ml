@@ -23,7 +23,7 @@ module type S = sig
   end
   val notify : ?notfor:[`Me | `Id of identity] -> key -> server_notif -> unit
   val client_ev : unit -> (key * client_notif) Eliom_react.Down.t
-  val server_ev : (key * client_notif) React.event
+  val server_ev : (key * server_notif) React.event
   val clean : unit -> unit
 end
 
@@ -54,7 +54,9 @@ module Make (A : ARG) : S
 
   type notification_data = A.key * A.client_notif
 
-  type notification_react = notification_data Eliom_react.Down.t
+  type notification_react =
+    notification_data Eliom_react.Down.t *
+    (?step:React.step -> notification_data -> unit)
 
   module Notif_hashtbl = Hashtbl.Make(struct
     type t    = A.key
@@ -128,7 +130,7 @@ module Make (A : ARG) : S
       ~scope:Eliom_common.default_process_scope
       None
 
-  let server_ev, send_e = React.E.create ()
+  let server_ev, server_send = React.E.create ()
 
   (* notif_e consists in a server side react event,
      its client side counterpart,
@@ -137,12 +139,17 @@ module Make (A : ARG) : S
     Eliom_reference.Volatile.eref_from_fun
       ~scope:Eliom_common.default_process_scope
       (fun () ->
-         Eliom_react.Down.of_react
+         let e, client_send = React.E.create () in
+         let client_ev =
+           Eliom_react.Down.of_react
              (*VVV If we add throttling, some events may be lost
                even if buffer size is not 1 :O *)
              ~size: 100 (*VVV ? *)
              ~scope:Eliom_common.default_process_scope
-             server_ev)
+             e
+         in
+         client_ev, client_send
+      )
 
   let set_identity identity =
     (* For each tab connected to the app,
@@ -178,6 +185,7 @@ module Make (A : ARG) : S
   end
 
   let notify ?notfor key content =
+    server_send (key, content);
     let f = fun (identity, notif) ->
       let blocked = match notfor with
         | Some `Me ->
@@ -191,13 +199,16 @@ module Make (A : ARG) : S
       then Lwt.return_unit
       else
         A.prepare identity content >>= fun content -> match content with
-        | Some content -> send_e (key, content); Lwt.return_unit
+        | Some content ->
+            let _, send_e = Eliom_reference.Volatile.get notif_e in
+            send_e (key, content);
+            Lwt.return_unit
         | None -> Lwt.return_unit
     in
     (* on all tabs listening on this resource *)
     I.iter f key
 
-  let client_ev () = Eliom_reference.Volatile.get notif_e
+  let client_ev () = fst @@ Eliom_reference.Volatile.get notif_e
 
   let clean () =
     let f key weak_tbl =
