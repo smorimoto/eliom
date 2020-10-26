@@ -88,3 +88,7 @@ endif
 reinstall:
 	${MAKE} uninstall
 	${MAKE} install
+
+gen-dune:
+	ocaml src/tools/gen_dune.ml --client src/lib > src/lib/client/dune.client
+	ocaml src/tools/gen_dune.ml --server src/lib > src/lib/server/dune.server
