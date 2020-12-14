@@ -1325,7 +1325,7 @@ module Persistent_cookies = struct
   let garbage_collect ~section gc_cookie =
     let now = Unix.time () in
     Expiry_dates.iter ~until:now @@ fun date cookies ->
-      Lwt_log.ign_notice_f ~section "potentially expired cookies %.0f: %s"
+      Lwt_log.ign_warning_f ~section "potentially expired cookies %.0f: %s"
                                     date cookies;
       Lwt_list.iter_s gc_cookie (String.split_on_char ',' cookies) >>= fun _ ->
       Expiry_dates.remove date
